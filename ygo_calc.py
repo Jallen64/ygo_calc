@@ -43,31 +43,29 @@ def load_deck(deck_name):
 
 
 def main():
-    st.markdown("# 🎴Yu-Gi-Oh! Hand Odds Calculator")
+    st.markdown("# 🎴 Yu-Gi-Oh! Hand Odds Calculator")
     st.markdown("---")
 
     # Initialize session state variables
     if "saved_decks" not in st.session_state:
-        st.session_state["saved_decks"] = {}
+        st.session_state["saved_decks"] = {
+            "Sample Deck": {"starter": 10, "extender": 10, "hand trap": 10, "board breaker": 10}}
     if "refresh_dropdown" not in st.session_state:
         st.session_state["refresh_dropdown"] = False
     if "deck" not in st.session_state:
-        st.session_state["deck"] = {}
+        st.session_state["deck"] = st.session_state["saved_decks"].get("Sample Deck", {}).copy()
     if "selected_deck" not in st.session_state:
-        st.session_state["selected_deck"] = "New Deck"
+        st.session_state["selected_deck"] = "Sample Deck"
 
     # Deck selection and management
     col1, col2 = st.columns([2, 1])
     with col1:
         deck_names = list(st.session_state["saved_decks"].keys())
-        selected_deck = st.selectbox("🔽 Select a deck to load", ["New Deck"] + deck_names, key="deck_dropdown")
+        selected_deck = st.selectbox("🔽 Select a deck to load", deck_names, key="deck_dropdown")
 
-        # Load deck only if selection changes and it's not a new deck
+        # Load deck only if selection changes
         if selected_deck != st.session_state["selected_deck"]:
-            if selected_deck != "New Deck":
-                st.session_state["deck"] = load_deck(selected_deck)
-            else:
-                st.session_state["deck"] = {}  # Reset to empty for a new deck
+            st.session_state["deck"] = load_deck(selected_deck)
             st.session_state["selected_deck"] = selected_deck
             st.rerun()
 
@@ -77,7 +75,7 @@ def main():
             save_deck(deck_name_input, st.session_state["deck"])
             st.success(f"Deck '{deck_name_input}' saved!")
             st.rerun()
-        if selected_deck != "New Deck" and st.button("❌ Delete Deck"):
+        if selected_deck != "Sample Deck" and st.button("❌ Delete Deck"):
             del st.session_state["saved_decks"][selected_deck]
             st.success(f"Deck '{selected_deck}' deleted!")
             st.rerun()
