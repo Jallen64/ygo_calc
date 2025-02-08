@@ -1,12 +1,12 @@
 import streamlit as st
 import random
+import math
 from collections import Counter
 
 # Set custom theme and layout
 st.set_page_config(page_title="Yu-Gi-Oh! Hand Odds Calculator",
                    page_icon="🎴", layout="wide")
 
-# Apply custom CSS for a more modern look
 st.markdown("""
     <style>
         .css-1d391kg { text-align: center; }
@@ -22,11 +22,27 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+###############################################################################
+# Part A: Helper Functions
+###############################################################################
+
+def hypergeom_pmf(k, K, n, N):
+    """
+    Probability of exactly k successes in n draws (Hypergeometric).
+    N = total deck size
+    K = number of copies of the chosen card
+    n = hand size
+    k = successes in your drawn hand
+    """
+    if k > K or k > n or n > N:
+        return 0.0
+    return (math.comb(K, k) * math.comb(N - K, n - k)) / math.comb(N, n)
+
 def monte_carlo_simulation(deck, hand_size, num_draws):
     deck_list = [
         card
         for card, count in deck.items()
-        if card != "_notes"  # Ensure "_notes" isn't treated as a card
+        if card != "_notes"
         for _ in range(count)
     ]
     total_deck_size = sum(count for card, count in deck.items() if card != "_notes")
@@ -84,10 +100,14 @@ def clear_decks_in_cookies():
     st.session_state["selected_deck"] = "Sample Deck"
     st.rerun()
 
+###############################################################################
+# Part C: Main Streamlit App
+###############################################################################
+
 def main():
     st.title("🎴 Yu-Gi-Oh! Hand Odds Calculator")
 
-    # 1. Manage Persistence (Cookies) at the top
+    # 1. Manage Persistence (Cookies)
     st.markdown("---")
     st.subheader("Manage Persistence (Cookies)")
     col_a, col_b, col_c = st.columns([1.2, 1.2, 1.6])
@@ -143,14 +163,13 @@ def main():
         deck_name_input = st.text_input("📁 Save Deck As")
         col_b1, col_b2 = st.columns([1, 1])
         with col_b1:
-            if st.button("💾 Create Deck"):
+            if st.button("💾 Save Deck"):
                 if deck_name_input:
                     save_deck(deck_name_input, st.session_state["deck"])
                     st.success(f"Deck '{deck_name_input}' saved!")
                     st.rerun()
                 else:
                     st.warning("Please enter a name for the new deck.")
-
         with col_b2:
             if st.button("🗑 Delete Selected Deck"):
                 current_deck = st.session_state["selected_deck"]
@@ -172,6 +191,7 @@ def main():
     st.markdown("---")
     st.subheader("🛠 Deck Configuration")
     new_deck = st.session_state["deck"].copy()
+
     for card_type in list(new_deck.keys()):
         if card_type == "_notes":
             continue
@@ -184,6 +204,7 @@ def main():
                 st.session_state["deck"] = new_deck.copy()
                 save_deck(selected_deck, new_deck)
                 st.rerun()
+
         if new_count.isdigit():
             new_deck[card_type] = int(new_count)
 
@@ -192,20 +213,14 @@ def main():
     # 5. Deck Notes
     st.markdown("---")
     st.subheader("📝 Deck Notes")
-
-    # We give the text area a *dynamic key* so that switching decks re-initializes its value.
     notes_key = f"notes_{st.session_state['selected_deck']}"
     current_notes = st.session_state["deck"].get("_notes", "")
-    st.text_area(
-        "Add your notes here:",
-        value=current_notes,
-        height=150,
-        key=notes_key
-    )
+    st.text_area("Add your notes here:",
+                 value=current_notes,
+                 height=150,
+                 key=notes_key)
 
-    # Compare the widget’s current value in st.session_state to the deck’s stored notes
     if st.session_state[notes_key] != current_notes:
-        # Update the deck's notes with what's in the widget
         st.session_state["deck"]["_notes"] = st.session_state[notes_key]
         save_deck(selected_deck, st.session_state["deck"])
         st.success("Notes updated!")
@@ -228,7 +243,7 @@ def main():
         else:
             st.warning("Card type already exists! Use the deck configuration above to update it.")
 
-    # 7. Simulation
+    # 7. Simulation (Monte Carlo)
     st.markdown("---")
     st.subheader("🎲 Run Simulation")
     hand_size = st.number_input("✋ Hand Size", min_value=1, value=5, step=1)
@@ -245,6 +260,50 @@ def main():
         st.write(f"🃏 Deck Size: {total_deck_size}")
         st.write("### 🎲 Simulated Average Hand Composition:", simulated_avg_hand)
         st.write("### 📈 Expected Average Hand Composition:", expected_avg_hand)
+
+    # 8. Customizable Hypergeometric Calculator
+    st.markdown("---")
+    st.subheader("🔢 Customizable Hypergeometric Calculator")
+
+    # Let user pick from the deck's card types (excluding _notes)
+    deck_dict = st.session_state["deck"]
+    card_types = [ct for ct in deck_dict.keys() if ct != "_notes"]
+
+    if not card_types:
+        st.info("No card types found in this deck. Add some card types first.")
+    else:
+        # Let the user select which card type to analyze
+        chosen_card = st.selectbox("Choose a card type to analyze", card_types)
+
+        # Get the total # of copies in the deck for that card
+        K = deck_dict[chosen_card]
+        # total deck size (excluding _notes)
+        N = sum(deck_dict[ct] for ct in card_types)
+        # We reuse 'hand_size' from the simulation above, but you could do a separate input
+
+        st.write(f"**Deck Size (N):** {N}, **Copies of '{chosen_card}' (K):** {K}, **Hand Size (n):** {hand_size}")
+
+        # Let the user specify "k" and whether we want EXACT or AT LEAST
+        k_value = st.number_input("Number of copies in your hand (k)",
+                                  min_value=0,
+                                  max_value=K if K < hand_size else hand_size,
+                                  value=1,
+                                  step=1)
+        mode = st.radio("Probability Type:", ["Exactly k", "At least k"])
+
+        if st.button("Calculate Hypergeometric Probability"):
+            if N < hand_size:
+                st.warning("Hand size is larger than deck size—check your configuration!")
+            else:
+                if mode == "Exactly k":
+                    p_exact = hypergeom_pmf(k_value, K, hand_size, N)
+                    st.write(f"**P(X = {k_value})**: {p_exact:.5f}")
+                else:  # "At least k"
+                    p_at_least = 0.0
+                    # sum from k_value up to min(K, hand_size)
+                    for kk in range(k_value, min(K, hand_size) + 1):
+                        p_at_least += hypergeom_pmf(kk, K, hand_size, N)
+                    st.write(f"**P(X ≥ {k_value})**: {p_at_least:.5f}")
 
 if __name__ == "__main__":
     main()
