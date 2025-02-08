@@ -7,6 +7,7 @@ from collections import Counter
 st.set_page_config(page_title="Yu-Gi-Oh! Hand Odds Calculator",
                    page_icon="🎴", layout="wide")
 
+# Apply custom CSS for a more modern look
 st.markdown("""
     <style>
         .css-1d391kg { text-align: center; }
@@ -26,19 +27,10 @@ st.markdown("""
 # Part A: Helper Functions
 ###############################################################################
 
-def hypergeom_pmf(k, K, n, N):
-    """
-    Probability of exactly k successes in n draws (Hypergeometric).
-    N = total deck size
-    K = number of copies of the chosen card
-    n = hand size
-    k = successes in your drawn hand
-    """
-    if k > K or k > n or n > N:
-        return 0.0
-    return (math.comb(K, k) * math.comb(N - K, n - k)) / math.comb(N, n)
-
 def monte_carlo_simulation(deck, hand_size, num_draws):
+    """
+    Existing Monte Carlo simulation for average hand composition.
+    """
     deck_list = [
         card
         for card, count in deck.items()
@@ -62,6 +54,53 @@ def monte_carlo_simulation(deck, hand_size, num_draws):
     }
 
     return total_deck_size, simulated_avg_hand, expected_avg_hand
+
+def simulate_playable_hands_advanced(deck, hand_size, num_draws, constraints):
+    """
+    Monte Carlo approach where 'constraints' is a dict:
+      constraints[card_type] = (min_count, max_count)
+
+    For each simulated hand, we check:
+        min_count <= # of that card_type in hand <= max_count
+    for ALL card types in the constraints. If all constraints pass,
+    the hand is considered "playable/valid."
+
+    Returns (valid_count, total_draws).
+    """
+    deck_list = [
+        card
+        for card, count in deck.items()
+        if card != "_notes"
+        for _ in range(count)
+    ]
+    total_deck_size = sum(count for card, count in deck.items() if card != "_notes")
+
+    if hand_size > total_deck_size:
+        return 0, 0  # invalid scenario
+
+    valid_count = 0
+
+    for _ in range(num_draws):
+        hand = random.sample(deck_list, hand_size)
+        hand_counts = Counter(hand)
+
+        # Check each constraint
+        is_valid = True
+        for ctype, (min_ct, max_ct) in constraints.items():
+            c_count = hand_counts.get(ctype, 0)
+            if not (min_ct <= c_count <= max_ct):
+                is_valid = False
+                break
+
+        if is_valid:
+            valid_count += 1
+
+    return valid_count, num_draws
+
+
+###############################################################################
+# Part B: Deck Persistence & Editing
+###############################################################################
 
 def save_deck(deck_name, deck):
     saved_decks = st.session_state.get("saved_decks", {})
@@ -107,7 +146,9 @@ def clear_decks_in_cookies():
 def main():
     st.title("🎴 Yu-Gi-Oh! Hand Odds Calculator")
 
-    # 1. Manage Persistence (Cookies)
+    #
+    # 1. Manage Persistence (Cookies) at the top
+    #
     st.markdown("---")
     st.subheader("Manage Persistence (Cookies)")
     col_a, col_b, col_c = st.columns([1.2, 1.2, 1.6])
@@ -124,7 +165,9 @@ def main():
         if st.button("🗑 Clear All Cookies"):
             clear_decks_in_cookies()
 
+    #
     # 2. Initialize session state
+    #
     if "saved_decks" not in st.session_state:
         st.session_state["saved_decks"] = {
             "Sample Deck": {
@@ -140,7 +183,9 @@ def main():
     if "selected_deck" not in st.session_state:
         st.session_state["selected_deck"] = "Sample Deck"
 
+    #
     # 3. Select Deck & Create/Delete Deck side by side
+    #
     st.markdown("---")
     col_sel, col_crdlt = st.columns([2, 1])
     with col_sel:
@@ -187,7 +232,9 @@ def main():
                         st.session_state["selected_deck"] = None
                     st.rerun()
 
+    #
     # 4. Deck Configuration
+    #
     st.markdown("---")
     st.subheader("🛠 Deck Configuration")
     new_deck = st.session_state["deck"].copy()
@@ -210,7 +257,9 @@ def main():
 
     st.session_state["deck"] = new_deck.copy()
 
+    #
     # 5. Deck Notes
+    #
     st.markdown("---")
     st.subheader("📝 Deck Notes")
     notes_key = f"notes_{st.session_state['selected_deck']}"
@@ -225,7 +274,9 @@ def main():
         save_deck(selected_deck, st.session_state["deck"])
         st.success("Notes updated!")
 
+    #
     # 6. Add New Card Type
+    #
     st.markdown("---")
     st.subheader("➕ Add New Card Type")
     col1, col2 = st.columns([3, 1])
@@ -243,7 +294,9 @@ def main():
         else:
             st.warning("Card type already exists! Use the deck configuration above to update it.")
 
-    # 7. Simulation (Monte Carlo)
+    #
+    # 7. Simulation (Monte Carlo) - same as before
+    #
     st.markdown("---")
     st.subheader("🎲 Run Simulation")
     hand_size = st.number_input("✋ Hand Size", min_value=1, value=5, step=1)
@@ -261,49 +314,52 @@ def main():
         st.write("### 🎲 Simulated Average Hand Composition:", simulated_avg_hand)
         st.write("### 📈 Expected Average Hand Composition:", expected_avg_hand)
 
-    # 8. Customizable Hypergeometric Calculator
+    #
+    # 8. Custom Hand Constraints Probability
+    #
     st.markdown("---")
-    st.subheader("🔢 Customizable Hypergeometric Calculator")
+    st.subheader("⚙️ Custom Hand Constraints Probability")
 
-    # Let user pick from the deck's card types (excluding _notes)
+    # Gather constraints for every card type
     deck_dict = st.session_state["deck"]
     card_types = [ct for ct in deck_dict.keys() if ct != "_notes"]
 
+    # If there are no card types, there's nothing to do
     if not card_types:
-        st.info("No card types found in this deck. Add some card types first.")
-    else:
-        # Let the user select which card type to analyze
-        chosen_card = st.selectbox("Choose a card type to analyze", card_types)
+        st.info("No card types in this deck (other than notes). Add some card types first.")
+        return
 
-        # Get the total # of copies in the deck for that card
-        K = deck_dict[chosen_card]
-        # total deck size (excluding _notes)
-        N = sum(deck_dict[ct] for ct in card_types)
-        # We reuse 'hand_size' from the simulation above, but you could do a separate input
+    st.write("**Define min/max counts for each card type in your hand**")
 
-        st.write(f"**Deck Size (N):** {N}, **Copies of '{chosen_card}' (K):** {K}, **Hand Size (n):** {hand_size}")
+    constraints = {}
+    for ct in card_types:
+        col_min, col_max = st.columns(2)
+        with col_min:
+            min_count = st.number_input(f"Min {ct} in hand", min_value=0,
+                                        max_value=hand_size, value=0, key=f"min_{ct}")
+        with col_max:
+            max_count = st.number_input(f"Max {ct} in hand", min_value=0,
+                                        max_value=hand_size, value=hand_size, key=f"max_{ct}")
 
-        # Let the user specify "k" and whether we want EXACT or AT LEAST
-        k_value = st.number_input("Number of copies in your hand (k)",
-                                  min_value=0,
-                                  max_value=K if K < hand_size else hand_size,
-                                  value=1,
-                                  step=1)
-        mode = st.radio("Probability Type:", ["Exactly k", "At least k"])
+        constraints[ct] = (min_count, max_count)
 
-        if st.button("Calculate Hypergeometric Probability"):
-            if N < hand_size:
-                st.warning("Hand size is larger than deck size—check your configuration!")
-            else:
-                if mode == "Exactly k":
-                    p_exact = hypergeom_pmf(k_value, K, hand_size, N)
-                    st.write(f"**P(X = {k_value})**: {p_exact:.5f}")
-                else:  # "At least k"
-                    p_at_least = 0.0
-                    # sum from k_value up to min(K, hand_size)
-                    for kk in range(k_value, min(K, hand_size) + 1):
-                        p_at_least += hypergeom_pmf(kk, K, hand_size, N)
-                    st.write(f"**P(X ≥ {k_value})**: {p_at_least:.5f}")
+    st.write("Once set, click below to compute how many hands satisfy **all** these constraints.")
+
+    if st.button("Calculate Probability with Custom Constraints"):
+        valid_count, total_draws = simulate_playable_hands_advanced(
+            deck_dict,
+            hand_size,
+            num_draws,
+            constraints
+        )
+        if total_draws > 0:
+            playable_rate = valid_count / total_draws
+            st.write(f"**Hands Satisfying Constraints:** {valid_count} / {total_draws}")
+            st.write(f"**Probability:** {playable_rate:.2%}")
+            st.success("Done!")
+        else:
+            st.warning("Check your deck size or hand size. Simulation couldn't run properly.")
+
 
 if __name__ == "__main__":
     main()
